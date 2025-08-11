@@ -5,6 +5,9 @@ from email.message import EmailMessage
 import smtplib
 
 app = Flask(__name__)
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify(message="DraftQ backend is running")
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
