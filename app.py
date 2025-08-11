@@ -42,6 +42,8 @@ def process_layout():
     # Save BOQ to /tmp
     excel_path = os.path.join(UPLOAD_FOLDER, "BOQ.xlsx")
     df.to_excel(excel_path, index=False)
+    # TEMP: bypass email to test endpoint
+return jsonify(message="BOQ generated (email disabled)"), 200
 
     # ---- Send email with attachment (reads creds from env) ----
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
