@@ -43,3 +43,14 @@ gunicorn
 pandas
 openpyxl
 flask-cors
+flask
+gunicorn
+flask-cors
+redis
+rq
+boto3
+pandas
+numpy
+requests
+openpyxl           # write .xlsx
+python-dotenv
