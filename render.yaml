@@ -1,24 +1,12 @@
 services:
   - type: web
-    name: draftq-backend
+    name: draftq-web
     env: python
+    pythonVersion: 3.11.9
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120
+    startCommand: gunicorn app:app
     healthCheckPath: /health
     envVars:
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: draftq-redis
-          property: connectionString
-      - key: S3_BUCKET
-        sync: false
-      - key: AWS_ACCESS_KEY_ID
-        sync: false
-      - key: AWS_SECRET_ACCESS_KEY
-        sync: false
-      - key: AWS_REGION
-        value: us-east-1
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
@@ -31,13 +19,45 @@ services:
         sync: false
       - key: OCRSPACE_API_KEY
         sync: false
+      # If your web uses S3, also keep these (otherwise remove):
+      - key: S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        sync: false
 
   - type: worker
     name: draftq-worker
     env: python
+    pythonVersion: 3.11.9
     buildCommand: pip install -r requirements.txt
+    # If you use RQ:
     startCommand: rq worker -u $REDIS_URL default
     envVars:
+      # Worker usually needs the same env vars as web if it sends emails or touches S3
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SENDER_EMAIL
+        sync: false
+      - key: OCRSPACE_API_KEY
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        sync: false
       - key: REDIS_URL
         fromService:
           type: redis
