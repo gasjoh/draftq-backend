@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: draftq-web
+    name: draftq-backend          # <-- must match exactly
     env: python
     pythonVersion: 3.11.9
     buildCommand: pip install -r requirements.txt
@@ -19,7 +19,6 @@ services:
         sync: false
       - key: OCRSPACE_API_KEY
         sync: false
-      # If your web uses S3, also keep these (otherwise remove):
       - key: S3_BUCKET
         sync: false
       - key: AWS_ACCESS_KEY_ID
@@ -34,10 +33,13 @@ services:
     env: python
     pythonVersion: 3.11.9
     buildCommand: pip install -r requirements.txt
-    # If you use RQ:
     startCommand: rq worker -u $REDIS_URL default
     envVars:
-      # Worker usually needs the same env vars as web if it sends emails or touches S3
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: draftq-redis
+          property: connectionString
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
@@ -58,11 +60,6 @@ services:
         sync: false
       - key: AWS_REGION
         sync: false
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: draftq-redis
-          property: connectionString
 
   - type: redis
     name: draftq-redis
