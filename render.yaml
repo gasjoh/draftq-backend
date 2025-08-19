@@ -1,24 +1,26 @@
 services:
+  # ---------------------------
+  # Web backend (Flask)
+  # ---------------------------
   - type: web
-    name: draftq-backend          # <-- must match exactly
+    name: draftq-backend
     env: python
-    pythonVersion: 3.11.9
+    region: oregon
+    plan: starter
+    autoDeploy: true
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     healthCheckPath: /health
     envVars:
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASS
-        sync: false
-      - key: SENDER_EMAIL
-        sync: false
-      - key: OCRSPACE_API_KEY
-        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: draftq-redis
+          property: connectionString
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+      # ==== App secrets (values set in dashboard; not synced from git) ====
       - key: S3_BUCKET
         sync: false
       - key: AWS_ACCESS_KEY_ID
@@ -27,11 +29,26 @@ services:
         sync: false
       - key: AWS_REGION
         sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SENDER_EMAIL
+        sync: false
+      - key: OCRSPACE_API_KEY
+        sync: false
 
+  # ---------------------------
+  # Background worker (RQ)
+  # ---------------------------
   - type: worker
     name: draftq-worker
     env: python
-    pythonVersion: 3.11.9
+    region: oregon
+    plan: starter
+    autoDeploy: true
     buildCommand: pip install -r requirements.txt
     startCommand: rq worker -u $REDIS_URL default
     envVars:
@@ -40,18 +57,8 @@ services:
           type: redis
           name: draftq-redis
           property: connectionString
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASS
-        sync: false
-      - key: SENDER_EMAIL
-        sync: false
-      - key: OCRSPACE_API_KEY
-        sync: false
+
+      # same secrets as backend (values set in dashboard)
       - key: S3_BUCKET
         sync: false
       - key: AWS_ACCESS_KEY_ID
@@ -60,7 +67,22 @@ services:
         sync: false
       - key: AWS_REGION
         sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SENDER_EMAIL
+        sync: false
+      - key: OCRSPACE_API_KEY
+        sync: false
 
+  # ---------------------------
+  # Redis (already exists, name must match)
+  # ---------------------------
   - type: redis
     name: draftq-redis
+    region: oregon
+    plan: starter
     ipAllowList: []
