@@ -32,11 +32,7 @@ def health_redis():
 # ---------------------------
 # RQ setup (connect to Redis)
 # ---------------------------
-redis_conn = Redis.from_url(
-    os.environ["REDIS_URL"],
-    ssl=True,
-    ssl_cert_reqs=None
-)
+redis_conn = Redis.from_url(os.environ["REDIS_URL"])
 q = Queue("default", connection=redis_conn)
 
 # ---------------------------
