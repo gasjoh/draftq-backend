@@ -42,7 +42,7 @@ q = Queue("default", connection=redis_conn)
 # ---------------------------
 # Test route to enqueue a job
 # ---------------------------
-@app.get("/enqueue-test")
+@app.route("/enqueue-test", methods=["GET"])
 def enqueue_test():
     try:
         # sanity: check if Redis connection is alive
