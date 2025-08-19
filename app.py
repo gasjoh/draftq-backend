@@ -44,9 +44,26 @@ q = Queue("default", connection=redis_conn)
 # ---------------------------
 @app.get("/enqueue-test")
 def enqueue_test():
-    job = q.enqueue(test_task, 2, 3)  # small dummy job
-    return jsonify(ok=True, job_id=job.get_id())
+    try:
+        # sanity: check if Redis connection is alive
+        redis_conn.ping()
+    except Exception as e:
+        return jsonify(ok=False, where="redis_conn.ping()", error=str(e)), 500
 
+    try:
+        job = q.enqueue(test_task, 2, 3)
+        return jsonify(ok=True, job_id=job.get_id())
+    except Exception as e:
+        return jsonify(ok=False, where="q.enqueue()", error=str(e)), 500
+@app.get("/debug-redis")
+def debug_redis():
+    try:
+        # minimal calls to avoid huge output
+        pong = redis_conn.ping()
+        server = redis_conn.info(section="server")
+        return jsonify(ok=True, ping=pong, server_version=server.get("redis_version"))
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)), 500
 if __name__ == "__main__":
     # Not used on Render (we run via gunicorn), but handy for local tests
     app.run(host="0.0.0.0", port=5000)
