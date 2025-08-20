@@ -34,6 +34,26 @@ def health_redis():
 # ---------------------------
 redis_conn = Redis.from_url(os.environ["REDIS_URL"])
 q = Queue("default", connection=redis_conn)
+from flask import request
+
+@app.route("/process_layout", methods=["POST"])
+def process_layout():
+    try:
+        # Get uploaded file
+        uploaded_file = request.files.get("file")
+        if not uploaded_file:
+            return jsonify(ok=False, error="No file uploaded"), 400
+
+        # Save file to /tmp (ephemeral disk on Render)
+        save_path = os.path.join("/tmp", uploaded_file.filename)
+        uploaded_file.save(save_path)
+
+        # Enqueue job for the worker
+        job = q.enqueue("worker_tasks.process_layout_task", save_path)
+
+        return jsonify(ok=True, job_id=job.get_id()), 200
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)), 500
 
 # ---------------------------
 # Test route to enqueue a job
