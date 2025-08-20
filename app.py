@@ -36,22 +36,33 @@ redis_conn = Redis.from_url(os.environ["REDIS_URL"])
 q = Queue("default", connection=redis_conn)
 from flask import request
 
+from flask import request, jsonify
+import os
+
 @app.route("/process_layout", methods=["POST"])
 def process_layout():
     try:
-        # Get uploaded file
-        uploaded_file = request.files.get("file")
-        if not uploaded_file:
-            return jsonify(ok=False, error="No file uploaded"), 400
+        # Debug: log what keys arrived
+        print("[WEB] files keys:", list(request.files.keys()))
+        print("[WEB] form keys:", list(request.form.keys()))
 
-        # Save file to /tmp (ephemeral disk on Render)
+        # Accept common field names
+        uploaded_file = (
+            request.files.get("file")
+            or request.files.get("upload")
+            or request.files.get("document")
+            or (next(iter(request.files.values()), None) if request.files else None)
+        )
+
+        if not uploaded_file:
+            return jsonify(ok=False, error="No file uploaded", hint="Expect field name 'file'"), 400
+
         save_path = os.path.join("/tmp", uploaded_file.filename)
         uploaded_file.save(save_path)
 
-        # Enqueue job for the worker
         job = q.enqueue("worker_tasks.process_layout_task", save_path)
+        return jsonify(ok=True, job_id=job.get_id(), path=save_path), 200
 
-        return jsonify(ok=True, job_id=job.get_id()), 200
     except Exception as e:
         return jsonify(ok=False, error=str(e)), 500
 
