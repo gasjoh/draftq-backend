@@ -1,3 +1,4 @@
+# force redeploy - dummy change
 services:
   # ---------------------------
   # Web backend (Flask)
@@ -8,7 +9,9 @@ services:
     region: oregon
     plan: starter
     autoDeploy: true
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+  pip install --upgrade pip setuptools wheel
+  pip install -r requirements.txt
     startCommand: gunicorn app:app
     healthCheckPath: /health
     envVars:
@@ -49,7 +52,9 @@ services:
     region: oregon
     plan: starter
     autoDeploy: true
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+  pip install --upgrade pip setuptools wheel
+  pip install -r requirements.txt
     startCommand: rq worker -u $REDIS_URL default
     envVars:
       - key: REDIS_URL
