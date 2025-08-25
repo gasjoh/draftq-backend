@@ -10,9 +10,9 @@ services:
     plan: starter
     autoDeploy: true
     buildCommand: |
-  pip install --upgrade pip setuptools wheel
-  pip install -r requirements.txt
-    startCommand: gunicorn app:app
+      pip install --upgrade pip setuptools wheel
+      pip install -r requirements.txt
+    startCommand: gunicorn app:app -w 2 -k gthread -b 0.0.0.0:10000
     healthCheckPath: /health
     envVars:
       - key: REDIS_URL
@@ -53,9 +53,9 @@ services:
     plan: starter
     autoDeploy: true
     buildCommand: |
-  pip install --upgrade pip setuptools wheel
-  pip install -r requirements.txt
-    startCommand: rq worker -u $REDIS_URL default
+      pip install --upgrade pip setuptools wheel
+      pip install -r requirements.txt
+    startCommand: python -c "import os, redis; from rq import Worker, Connection; conn=redis.from_url(os.environ['REDIS_URL']); Worker(['draftq'], connection=conn).work()"
     envVars:
       - key: REDIS_URL
         fromService:
