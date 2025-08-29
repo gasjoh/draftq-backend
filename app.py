@@ -59,57 +59,107 @@ def health():
 
 @app.route("/process_layout", methods=["POST"])
 def process_layout():
-    # Protect (optional, but you have no token now)
     if not _auth_ok():
         return jsonify(ok=False, error="unauthorized"), 401
 
-    # 1) Try JSON body (Elementor Webhook style)
-    data = request.get_json(silent=True) or {}
-    print("DEBUG incoming JSON:", data)
-    email = data.get("email") or data.get("Email")
-    file_url = data.get("uploaded_file") or data.get("upload")
+    import os, uuid, requests, json
 
-    if email and file_url:
-        import os, uuid, requests
+    # ---- helpers ----
+    def first_url(v):
+        # handles: string, list[str|dict], dict with 'url'
+        if isinstance(v, str):
+            return v
+        if isinstance(v, list) and v:
+            return first_url(v[0])
+        if isinstance(v, dict):
+            if "url" in v and isinstance(v["url"], str):
+                return v["url"]
+            # common Elementor file object shapes
+            for k in ("file", "value", "values"):
+                if k in v:
+                    return first_url(v[k])
+        return None
+
+    def get_any(d, *names):
+        # try exact keys (case-insensitive)
+        for n in names:
+            for k, v in (d.items() if isinstance(d, dict) else []):
+                if k.lower() == n.lower():
+                    return v
+        return None
+
+    def find_by_substring(d, *subs):
+        # last-resort: look for a key containing any substring
+        for k, v in (d.items() if isinstance(d, dict) else []):
+            kl = k.lower()
+            if any(s in kl for s in subs):
+                return v
+        return None
+
+    # ---- inspect request (tiny, safe logs) ----
+    ct = request.headers.get("Content-Type", "")
+    raw_preview = request.get_data(as_text=True)[:400]
+    print("DEBUG ct:", ct)
+    print("DEBUG raw_preview:", raw_preview)
+
+    # ---- 1) Try JSON (Elementor Advanced Data often sends JSON) ----
+    data = request.get_json(silent=True) or {}
+
+    # Elementor sometimes nests under 'form_fields' or 'fields' (list or dict)
+    form_fields = data.get("form_fields") or data.get("fields") or {}
+    if isinstance(form_fields, list):
+        # convert list[{id,label,value,url,...}] -> dict[id]=value/url/values
+        ff = {}
+        for item in form_fields:
+            if isinstance(item, dict) and "id" in item:
+                ff[item["id"]] = item.get("value") or item.get("url") or item.get("values") or item.get("file")
+        form_fields = ff
+
+    # candidates from JSON
+    email = get_any(data, "email", "Email") or get_any(form_fields, "email", "Email")
+    file_val = (
+        get_any(data, "uploaded_file", "file_url", "upload", "Upload")
+        or get_any(form_fields, "uploaded_file", "file_url", "upload", "Upload")
+        or find_by_substring(data, "file", "upload")
+        or find_by_substring(form_fields, "file", "upload")
+    )
+    file_url = first_url(file_val)
+
+    # ---- 2) If not JSON, try form-encoded (application/x-www-form-urlencoded) ----
+    if not (email and file_url):
+        form = request.form.to_dict(flat=False)
+        # flatten singletons
+        flat = {k: (v[0] if isinstance(v, list) and v else v) for k, v in form.items()}
+        print("DEBUG form keys:", list(flat.keys()))
+
+        email = email or get_any(flat, "email", "Email") or find_by_substring(flat, "email")
+        fv = get_any(flat, "uploaded_file", "file_url", "upload", "Upload") or find_by_substring(flat, "file", "upload")
+        file_url = file_url or first_url(fv)
+
+    # ---- 3) Fallback to multipart file (old flow) ----
+    file_storage = request.files.get("file")
+
+    if not file_storage and not (email and file_url):
+        return jsonify(ok=False, error="missing file or (email+file_url)"), 400
+
+    # ---- 4) Materialize to /tmp ----
+    if file_storage:
+        local_path = f"/tmp/{uuid.uuid4()}_{file_storage.filename}"
+        file_storage.save(local_path)
+        print("DEBUG saved multipart file:", local_path)
+    else:
         local_path = f"/tmp/{uuid.uuid4()}.pdf"
-        r = requests.get(file_url, timeout=30)
-        if r.status_code != 200:
-            return jsonify(ok=False, error="failed to download file"), 400
+        try:
+            r = requests.get(file_url, timeout=45)
+        except Exception as e:
+            return jsonify(ok=False, error=f"download error: {e}"), 400
+        if r.status_code != 200 or not r.content:
+            return jsonify(ok=False, error=f"failed to download file: {file_url}"), 400
         with open(local_path, "wb") as f:
             f.write(r.content)
+        print("DEBUG downloaded URL to:", local_path)
 
-        # enqueue job with local_path + email
-        # enqueue_process(local_path, email)
-        return jsonify(ok=True, queued=True), 202
+    # ---- 5) Enqueue job (hook to your existing function) ----
+    # enqueue_process(local_path, email)  # <- your existing queue call
 
-    # 2) Fallback to multipart form (old style)
-    email = request.form.get("email")
-    file = request.files.get("file")
-
-    if not email:
-        return jsonify(ok=False, error="email required"), 400
-    if not file:
-        return jsonify(ok=False, error="file required"), 400
-
-    local_path = f"/tmp/{uuid.uuid4()}_{file.filename}"
-    file.save(local_path)
-
-    # enqueue job with local_path + email
-    # enqueue_process(local_path, email)
     return jsonify(ok=True, queued=True), 202
-    if not email:
-        return jsonify(ok=False, error="email required"), 400
-    if not file:
-        return jsonify(ok=False, error="file required (multipart field 'file')"), 400
-
-    # Save upload to /tmp
-    ext = os.path.splitext(file.filename or "layout")[1] or ".pdf"
-    job_id = str(uuid.uuid4())
-    save_path = os.path.join(UPLOAD_FOLDER, f"{job_id}{ext}")
-    file.save(save_path)
-
-    # Enqueue the job in the worker
-    from worker_tasks import process_layout_job
-    job = q.enqueue(process_layout_job, save_path, email, job_id=job_id, ttl=60*60*6)  # 6h
-
-    return jsonify(ok=True, job_id=job.get_id())
