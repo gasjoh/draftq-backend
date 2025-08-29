@@ -65,6 +65,7 @@ def process_layout():
 
     # 1) Try JSON body (Elementor Webhook style)
     data = request.get_json(silent=True) or {}
+    print("DEBUG incoming JSON:", data)
     email = data.get("email") or data.get("Email")
     file_url = data.get("uploaded_file") or data.get("upload")
 
