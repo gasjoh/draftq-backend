@@ -132,9 +132,23 @@ def process_layout():
         flat = {k: (v[0] if isinstance(v, list) and v else v) for k, v in form.items()}
         print("DEBUG form keys:", list(flat.keys()))
 
-        email = email or get_any(flat, "email", "Email") or find_by_substring(flat, "email")
-        fv = get_any(flat, "uploaded_file", "file_url", "upload", "Upload") or find_by_substring(flat, "file", "upload")
-        file_url = file_url or first_url(fv)
+       # find email by key name
+email = email or get_any(flat, "email", "Email") or find_by_substring(flat, "email")
+
+# try normal file keys first
+fv = (
+    get_any(flat, "uploaded_file", "file_url", "upload", "Upload")
+    or find_by_substring(flat, "file", "upload")
+)
+
+# if not found, look for any key that looks like a filename
+if not fv:
+    for k, v in flat.items():
+        if k.lower().endswith((".pdf", ".dwg", ".png", ".jpg")):
+            fv = v
+            break
+
+file_url = file_url or first_url(fv)
 
     # ---- 3) Fallback to multipart file (old flow) ----
     file_storage = request.files.get("file")
