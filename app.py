@@ -59,14 +59,17 @@ def health():
 
 @app.route("/process_layout", methods=["POST"])
 def process_layout():
+    # If you later add a token, this will protect the route.
     if not _auth_ok():
         return jsonify(ok=False, error="unauthorized"), 401
 
-    import os, uuid, requests, json
+    import os
+    import uuid
+    import requests
 
-    # ---- helpers ----
+    # ---------- helpers ----------
     def first_url(v):
-        # handles: string, list[str|dict], dict with 'url'
+        # Accept string, list, or dict shapes Elementor may send
         if isinstance(v, str):
             return v
         if isinstance(v, list) and v:
@@ -74,48 +77,47 @@ def process_layout():
         if isinstance(v, dict):
             if "url" in v and isinstance(v["url"], str):
                 return v["url"]
-            # common Elementor file object shapes
             for k in ("file", "value", "values"):
                 if k in v:
                     return first_url(v[k])
         return None
 
     def get_any(d, *names):
-        # try exact keys (case-insensitive)
+        if not isinstance(d, dict):
+            return None
         for n in names:
-            for k, v in (d.items() if isinstance(d, dict) else []):
+            for k, v in d.items():
                 if k.lower() == n.lower():
                     return v
         return None
 
     def find_by_substring(d, *subs):
-        # last-resort: look for a key containing any substring
-        for k, v in (d.items() if isinstance(d, dict) else []):
+        if not isinstance(d, dict):
+            return None
+        for k, v in d.items():
             kl = k.lower()
             if any(s in kl for s in subs):
                 return v
         return None
 
-    # ---- inspect request (tiny, safe logs) ----
+    # ---------- light debugging ----------
     ct = request.headers.get("Content-Type", "")
     raw_preview = request.get_data(as_text=True)[:400]
     print("DEBUG ct:", ct)
     print("DEBUG raw_preview:", raw_preview)
 
-    # ---- 1) Try JSON (Elementor Advanced Data often sends JSON) ----
+    # ---------- 1) Try JSON body ----------
     data = request.get_json(silent=True) or {}
-
-    # Elementor sometimes nests under 'form_fields' or 'fields' (list or dict)
     form_fields = data.get("form_fields") or data.get("fields") or {}
+
+    # If Elementor sends list of {id,label,value}, convert to dict
     if isinstance(form_fields, list):
-        # convert list[{id,label,value,url,...}] -> dict[id]=value/url/values
         ff = {}
         for item in form_fields:
             if isinstance(item, dict) and "id" in item:
                 ff[item["id"]] = item.get("value") or item.get("url") or item.get("values") or item.get("file")
         form_fields = ff
 
-    # candidates from JSON
     email = get_any(data, "email", "Email") or get_any(form_fields, "email", "Email")
     file_val = (
         get_any(data, "uploaded_file", "file_url", "upload", "Upload")
@@ -125,14 +127,56 @@ def process_layout():
     )
     file_url = first_url(file_val)
 
-    # ---- 2) If not JSON, try form-encoded (application/x-www-form-urlencoded) ----
+    # ---------- 2) If not JSON, try form-urlencoded ----------
     if not (email and file_url):
         form = request.form.to_dict(flat=False)
-        # flatten singletons
+        # Flatten singletons
         flat = {k: (v[0] if isinstance(v, list) and v else v) for k, v in form.items()}
         print("DEBUG form keys:", list(flat.keys()))
 
-       # find email by key name
+        if not email:
+            email = get_any(flat, "email", "Email") or find_by_substring(flat, "email")
+
+        if not file_url:
+            fv = (
+                get_any(flat, "uploaded_file", "file_url", "upload", "Upload")
+                or find_by_substring(flat, "file", "upload")
+            )
+            # If still nothing, Elementor used the filename as the key (e.g., "ARCH.pdf")
+            if not fv:
+                for k, v in flat.items():
+                    if isinstance(k, str) and k.lower().endswith((".pdf", ".dwg", ".png", ".jpg", ".jpeg")):
+                        fv = v
+                        break
+            file_url = first_url(fv)
+
+    # ---------- 3) Fallback to multipart file ----------
+    file_storage = request.files.get("file")
+
+    if not file_storage and not (email and file_url):
+        return jsonify(ok=False, error="missing file or (email+file_url)"), 400
+
+    # ---------- 4) Save to /tmp ----------
+    if file_storage:
+        local_path = f"/tmp/{uuid.uuid4()}_{file_storage.filename}"
+        file_storage.save(local_path)
+        print("DEBUG saved multipart file:", local_path)
+    else:
+        local_path = f"/tmp/{uuid.uuid4()}.pdf"
+        try:
+            r = requests.get(file_url, timeout=45)
+        except Exception as e:
+            return jsonify(ok=False, error=f"download error: {e}"), 400
+        if r.status_code != 200 or not r.content:
+            return jsonify(ok=False, error=f"failed to download file: {file_url}"), 400
+        with open(local_path, "wb") as f:
+            f.write(r.content)
+        print("DEBUG downloaded URL to:", local_path)
+
+    # ---------- 5) Enqueue your worker job ----------
+    # enqueue_process(local_path, email)  # <- call your existing queue function
+
+    return jsonify(ok=True, queued=True), 202
 email = email or get_any(flat, "email", "Email") or find_by_substring(flat, "email")
 
 # try normal file keys first
